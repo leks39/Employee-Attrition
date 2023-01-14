@@ -1,0 +1,435 @@
+---
+title: "Employee Attrition 2023"
+author: "Olalekan Fagbuyi"
+date: "2023-01-02"
+output: html_document
+---
+
+## 1. Introduction
+This project aims to predict attrition of employee based on data sourced from HR department. This data includes columns for Age, Attrition, Department, Gender, Salary, Education Level, Role, Hours Worked among others.
+
+The target variable here is the Attrition column with values Yes or No. The other 34 variables are used in predicting the target using a classification machine learning model. Performance of the model will also be evaluated using the McFadden R^2^ and confusion matrix.
+
+Both numerical 
+
+Lastly, factor importance will also be determined to ascertain the most important features driving staff to leave or stay with the company. This will enable HR can formulate appropriate staff retention strategies.
+
+
+## 2. Importing Libraries and Loading Dataset
+
+Libraries used for this project includes caret for Machine Learning classification models
+Tidyverse for manipulating dataframes
+Corrplot for viewing correlation among the numerical features
+pscl is used for calculating McFadden's R^2^ to evaluate model's fit
+Random Forest for determining feature importance 
+
+
+```{r warning=TRUE}
+library(caret)
+library (tidyverse)
+library (corrplot)
+library(pscl)
+library(randomForest)
+library(gridExtra)
+```
+
+
+```{r}
+#loading dataset
+HR_data <- read.csv("Employee Attrition.csv", header = TRUE, stringsAsFactors = FALSE)
+head(HR_data)
+```
+```{r}
+str(HR_data)
+```
+
+
+
+## 3.Exploratory Data Analyis using Visualizations 
+
+```{r}
+#Attrition rate at the company 
+p1 <- HR_data %>%  dplyr::group_by(Attrition) %>% dplyr::summarise(cnt = n()) %>% 
+  dplyr::mutate(freq = (cnt / sum(cnt))*100) %>% 
+  ggplot(aes(x = Attrition, y = freq, fill = Attrition)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(freq,0), "%")), position = position_stack(vjust = 0.5), size = 2.5) +
+  scale_y_continuous(labels = function(x) paste0(x, "%")) +labs(title = "Attrition", x = "Attrition", y ="Percentage")
+
+
+p2 <- HR_data %>% dplyr::group_by(Department, Attrition) %>%  dplyr::summarise(cnt = n()) %>% 
+   dplyr::mutate(freq = (cnt / sum(cnt))*100) %>%  ggplot(aes(x = Department, y = freq, fill = Attrition)) +
+   geom_bar(position = position_stack(), stat = "identity", width = .6) +
+   geom_text(aes(label = paste0(round(freq,0), "%")), position = position_stack(vjust = 0.5), size = 2.5) +
+   scale_y_continuous(labels = function(x) paste0(x, "%")) +
+  labs(title = "Attrition by Department", x = "Department", y = "Percentage")
+
+
+   
+grid.arrange(p1, p2, nrow = 2, ncol = 1)
+```
+**Comments** - General attrition rate across the company is 16%. Sales (21%) and HR(19%) have a higher attrition than the company average while R&D department is slightly lower at 14%.
+
+```{r}
+#Plotting data to view distr of Job Roles
+HR_data %>% 
+  dplyr::group_by(JobRole, Attrition) %>% 
+  dplyr::summarise(cnt = n()) %>% 
+  dplyr::mutate(freq = (cnt / sum(cnt))*100) %>% 
+  ggplot(aes(x = JobRole, y = freq, fill = Attrition)) +
+  geom_bar(position = position_stack(), stat = "identity", width = .7) +
+  geom_text(aes(label = paste0(round(freq,0), "%")), 
+            position = position_stack(vjust = 0.5), size = 3) +
+  scale_y_continuous(labels = function(x) paste0(x, "%")) +
+  labs(title = "Job Role and Attrition", x = "Job Role", y = "Percentage") +
+  theme(axis.text.x = element_text(angle = 20, hjust = 0.5))
+
+```
+**Comments** - A further dive into the Attrition numbers shows by job roles shows HR Representatives (23%), Laboratory Technicians (24%) and Sales Representatives (40%) are the key drivers of attrition at the company.
+
+### Analyzing Employee Demographics using Numerical Variables
+```{r}
+p1 <- ggplot(HR_data) + geom_histogram(aes(Age), binwidth = 5, fill = "purple",col = "black")
+p2 <- ggplot(HR_data) + geom_histogram(aes(DistanceFromHome), binwidth = 5, fill = "purple",col = "black")
+p3 <- ggplot(HR_data) + geom_histogram(aes(NumCompaniesWorked), binwidth = 2, fill = "purple",col = "black")
+p4 <- ggplot(HR_data) + geom_histogram(aes(YearsAtCompany ), binwidth = 3, fill = "purple",col = "black")
+p5 <- ggplot(HR_data) + geom_histogram(aes(MonthlyIncome), binwidth = 1000, fill = "purple",col = "black")
+p6 <- ggplot(HR_data) + geom_histogram (aes(PercentSalaryHike), binwidth = 1, fill = "purple",col = "black")
+
+grid.arrange(p1, p2, p3, p4, p5, p6, nrow = 2, ncol = 3)
+```
+**Comments** - The Age feature is close to being normally distrusted with most employees within the ages of 30 and 40. The other 5 numerical features are skewed to the right. Features will be normalized in subsequent sections
+
+### Bivariate Analysis using Numerical Variables
+```{r}
+p1 <- HR_data %>%
+  ggplot(aes(x = Age, fill = Attrition)) + geom_density(alpha = 0.5) + ggtitle("Age") + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank())
+
+
+p2 <- HR_data %>%
+  ggplot(aes(x = DistanceFromHome, fill = Attrition)) + geom_density(alpha = 0.5) + ggtitle("Distance From Home") + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank())
+
+
+p3 <- HR_data %>%
+  ggplot(aes(x = NumCompaniesWorked, fill = Attrition)) + geom_density(alpha = 0.5) + ggtitle("Number of Companies Worked") + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank())
+
+
+p4 <- HR_data %>%
+  ggplot(aes(x = YearsAtCompany, fill = Attrition)) + geom_density(alpha = 0.5) + ggtitle("Years at Company") + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank())
+
+
+p5 <- HR_data %>%
+  ggplot(aes(x = MonthlyIncome, fill = Attrition)) + geom_density(alpha = 0.5) + ggtitle("Monthly Income") + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank())
+
+
+p6 <- HR_data %>%
+  ggplot(aes(x = PercentSalaryHike, fill = Attrition)) + geom_density(alpha = 0.5) + ggtitle("Percent Salary Hike") + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank())
+
+
+grid.arrange(p1, p2, p3, p4, p5, p6 , nrow = 3, ncol = 2)
+```
+**Comments** - The Bivariate analysis applies EDA using 2 variables. In this case 6 of the numerical variables used earlier and the target variable (Attrition).
+
+From the plots above, it can be seen that attritition is highest between the ages of 20-30 and also among staff that leave more than 10kms from work. In terms of salaries, staff that earn less than 5000 per month while staff that have worked for 5 or move companies have an higher attrition rate.
+
+### Analyzing Employee Demographics using Categorical Variables
+
+```{r}
+p1<- HR_data %>%
+  group_by(Gender) %>%
+  summarise(counts = n()) %>%
+  ggplot(aes(x = as.factor(Gender), y = counts)) + geom_bar(stat = 'identity', fill = "darkolivegreen3") + ggtitle("Gender") +geom_text(aes(label=counts), size = 2.5, position=position_dodge(width=0.2), vjust=-0.25) + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank()) + scale_y_continuous(limits = c(0, 900))
+
+p2<- HR_data %>%
+  group_by(Education) %>%
+  summarise(counts = n()) %>%
+  ggplot(aes(x = as.factor(Education), y = counts)) + geom_bar(stat = 'identity', fill = "darkolivegreen3") + ggtitle("Education") +geom_text(aes(label=counts), size = 2.5, position=position_dodge(width=0.2), vjust=-0.25) + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank()) + scale_y_continuous(limits = c(0, 650))
+
+p3 <- HR_data %>%
+  group_by(EducationField) %>%
+  summarise(counts = n()) %>%
+  ggplot(aes(x = as.factor(EducationField), y = counts)) + geom_bar(stat = 'identity', fill = "darkolivegreen3") + ggtitle("Education Field") +geom_text(aes(label=counts), size = 2.5, position=position_dodge(width=0.2), vjust=-0.25) + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank()) + scale_y_continuous(limits = c(0, 650))
+
+p4 <- HR_data %>%
+  group_by(MaritalStatus) %>%
+  summarise(counts = n()) %>%
+  ggplot(aes(x = as.factor(MaritalStatus), y = counts)) + geom_bar(stat = 'identity', fill = "darkolivegreen3")+ ggtitle("Marital Status") +geom_text(aes(label=counts), size = 2.5, position=position_dodge(width=0.2), vjust=-0.25) + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank()) + scale_y_continuous(limits = c(0, 750))
+
+p5 <- HR_data %>%
+  group_by(RelationshipSatisfaction) %>%
+  summarise(counts = n()) %>%
+  ggplot(aes(x = as.factor(RelationshipSatisfaction), y = counts)) + geom_bar(stat = 'identity', fill = "darkolivegreen3") + ggtitle("Relationship Satisfaction") +geom_text(aes(label=counts), size = 2.5, position=position_dodge(width=0.2), vjust=-0.25) + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank())+ scale_y_continuous(limits = c(0, 500))
+
+p6 <- HR_data %>%
+  group_by(WorkLifeBalance) %>%
+  summarise(counts = n()) %>%
+  ggplot(aes(x = as.factor(WorkLifeBalance), y = counts)) + geom_bar(stat = 'identity', fill = "darkolivegreen3")+ ggtitle("Work Life Balance") +geom_text(aes(label=counts), size = 2.5, position=position_dodge(width=0.2), vjust=-0.25) + theme(plot.title = element_text(size =10),axis.text.x = element_text(size =7,angle = 45, hjust = 1),axis.title.x=element_blank()) + scale_y_continuous(limits = c(0, 950))
+
+grid.arrange(p1, p2, p3, p4, p5, p6, nrow = 2, ncol = 3)
+```
+**Comments** - The company employs more men (60%) than women (40%). Also, most employees (73%) are either from the life sciences and medical field. In terms of education qualifications, 50% of staff have at least a college education.
+
+On a personal level, 46% of staff are married with 60% having either high or very high relationship satisfaction. Lastly, the data shows a high level of work life balance with 95% of staff choosing good to best option on the survey
+
+
+## 4. Data Pre-processing
+This stage involves making the data suitable for a machine learning model. Operations performed includes;
+
+* Checking for null values
+* Modifying/dropping highly correlated and redundant features
+* Standardizing numerical features by removing outliers.
+* Encoding categorical variables
+
+
+### Checking for null values
+```{r}
+#checking for null values
+sapply(HR_data, function(x) sum(is.na(x)))
+```
+
+
+```{r}
+# Removing Zero and Near Zero-Variance Predictors - feature with very few unique values
+nzv <- nearZeroVar(HR_data)
+nzcol <- colnames(HR_data)[nzv]
+nzcol
+
+#new df with redundant columns
+HR_data1<- HR_data[, -nzv]
+dim(HR_data1)
+```
+
+
+```{r}
+#Dropping other columns with little bearing with attrition or are better represented by other features
+drop <- c("DailyRate", "EmployeeNumber","HourlyRate", "MonthlyRate" )
+HR_data2 = HR_data1[,!(names(HR_data1) %in% drop)]
+dim(HR_data2)
+```
+
+
+#### Subestting columns in the df to numeric and non-numeric
+```{r}
+# numeric columns
+num_cols <- unlist(lapply(HR_data2, is.numeric))       
+num_cols
+
+HR_data_num <- HR_data2[ , num_cols]                       
+dim(HR_data_num)
+```
+```{r}
+# non-numeric columns of data
+char_cols <- unlist(lapply(HR_data2, is.character))       
+char_cols
+
+# non-numeric columns of data
+char_cols <- unlist(lapply(HR_data2, is.character))       
+char_cols
+
+HR_data_char <- HR_data2[ , char_cols]                       
+dim(HR_data_char)
+```
+### Checking for and removing correlated features in the numeric df
+```{r}
+Cor <- round(cor(HR_data_num),2)
+Cor
+summary(Cor[upper.tri(Cor)])
+```
+### Vizualizing Correlation Plot
+```{r, fig.width = 10.5}
+corrplot(Cor, type="lower",method ="color", title = "Correlation Plot", 
+         mar=c(0,1,1,1), tl.cex= 0.7, outline= T, tl.col= rgb(0, 0, 0))
+```
+
+
+```{r}
+#Setting correlation cutoff
+highlyCorrelated <- findCorrelation(Cor, cutoff = 0.6)
+highlyCorCol <- colnames(HR_data_num)[highlyCorrelated]
+highlyCorCol
+
+HR_data_num1 <- HR_data_num[, -which(colnames(HR_data_num) %in% highlyCorCol)]
+dim(HR_data_num1)
+```
+
+### Standardizing data to reduce effect of outliers.
+Outliers should be handled before building a statistical model as they reduce the fit and stability of the model. In order to avoid this, features are scaled using a technique called Standardization, which is a process of rescaling data so that the data have a mean of ‘0’ and standard deviation of ‘1’.
+
+Viewing distribution of numerical features using a boxplot
+```{r, fig.width = 8}
+boxplot(HR_data_num1)
+```
+
+Numerical features are standardized using the scale function
+```{r}
+HR_data_num2 <- HR_data_num1 %>% mutate_all(~(scale(.) %>% as.vector))
+head(HR_data_num2)
+```
+### Feature Selection for Categorical variables using Chi-Square Test
+
+The chi-square test is a statistical test of independence to determine the dependency of two variables. It shares similarities with coefficient of determination, R². However, chi-square test is only applicable to categorical or nominal data while R² is only applicable to numeric data.
+
+The chi-square statistics is calculated between every feature variable and the target variable.  The null hypothesis for this test is the two variables are independent, and the alternative hypothesis is the variables are not independent. In order to reject the null hypothesis and keep variables in the model, the p-value of this test must have a p-value below .05
+
+```{r}
+glimpse(HR_data_char)
+```
+```{r warning=TRUE}
+chisq.test(HR_data_char$BusinessTravel, HR_data_char$Attrition)
+chisq.test(HR_data_char$Department, HR_data_char$Attrition)
+chisq.test(HR_data_char$EducationField, HR_data_char$Attrition)
+chisq.test(HR_data_char$Gender, HR_data_char$Attrition)
+chisq.test(HR_data_char$JobRole, HR_data_char$Attrition)
+chisq.test(HR_data_char$MaritalStatus, HR_data_char$Attrition)
+chisq.test(HR_data_char$OverTime, HR_data_char$Attrition)
+```
+
+From chi-square tests carried out, the gender features with be dropped because it has a p-value of > 0.05 i.e. 0.2906
+
+```{r}
+#dropping gender column
+HR_data_char = subset(HR_data_char, select = -c(Gender) )
+head(HR_data_char)
+```
+
+### Encoding categorical varialbes
+```{r}
+# Label encoding columns with 2 unique values
+HR_data_char$Attrition[HR_data_char$Attrition == 'Yes'] <- 1
+HR_data_char$Attrition[HR_data_char$Attrition == 'No'] <- 0
+
+HR_data_char$OverTime[HR_data_char$OverTime == 'Yes'] <- 1
+HR_data_char$OverTime[HR_data_char$OverTime == 'No'] <- 0
+
+#converting columns to numeric
+HR_data_char$Attrition <- as.numeric(HR_data_char$Attrition)
+HR_data_char$OverTime <- as.numeric(HR_data_char$OverTime)
+
+str(HR_data_char)
+```
+
+```{r}
+#one-hot encoding columns with more than 2 unique values
+dummy <- dummyVars(" ~ .", data = HR_data_char)
+HR_data_char1 <- data.frame(predict(dummy, newdata = HR_data_char))
+
+str(HR_data_char1)
+```
+
+```{r}
+#Binding categorical and numerical dfs to form new (complete) df
+HR_data2 <- cbind(HR_data_char1, HR_data_num2)
+glimpse(HR_data2)
+```
+
+## 5. Classification - Modelling
+
+```{r}
+# To achieve reproducible model; set the random seed number
+set.seed(100)
+
+# Data is split into training and test set in a 80:20 ratio
+TrainingIndex <- createDataPartition(HR_data2$Attrition, p=0.8, list = FALSE)
+TrainingSet <- HR_data2[TrainingIndex,] # Training Set
+TestingSet <- HR_data2[-TrainingIndex,] # Test Set
+
+```
+
+
+```{r}
+#Model fitting
+model <- glm(Attrition ~.,family=binomial(link='logit'),data = TrainingSet )
+summary(model)
+```
+### Model Intepretation
+
+The coefficients indicates the average change in log odds of attrition. For instance, every unit increase in OverTime is associated with an average increase of 2.2840 in the log odds of Attrition. The p-values in the output also give us an idea of how effective each predictor variable is at predicting the probability of Attrition:
+
+
+### Model Evaluation
+While linear models performance is measured by R^2^, that of logistic regression is measured by a metric called McFadden's R^2^. The value ranges from 0 to 1, in practice values over 0.40 indicates a good model fit.
+
+We can compute McFadden’s R^2^ for our model using the pR2 function from the pscl package. A rule of thumb that is quite helpful is that a McFadden's pseudo R^2^ ranging from 0.2 to 0.4 indicates very good model fit
+
+```{r}
+pscl::pR2(model)["McFadden"]
+```
+A value of 0.3647089 indicates the  model fits the data quite well and has high predictive power.
+
+### Confusion Matrix
+The confusion matrix table in R helps in matching the predictions against actual values. It includes two dimensions, among them one will indicate the predicted values and another one will represent the actual values.
+
+```{r warning=TRUE}
+# Prediction on TestingSet
+prediction <- predict(model, TestingSet, type = "response")
+head(prediction)
+
+#Assigning probabilities - If prediction exceeds threshold of 0.5, 1 else 0
+prediction <- ifelse(prediction >0.5, 1, 0)
+head(prediction)
+```
+
+```{r}
+#Computing confusion matrix values
+confusionMatrix(factor(TestingSet$Attrition),factor(prediction), mode = 'everything', positive = "0")
+```
+Interpreting the measures in the confusion matrix:
+
+* Accuracy 84.35% - The success rate or accuracy of the model is calculated by dividing total no. of correction predictions by total predictions (TP + TN/TP+TN+FP+FN) 
+
+* Sensitivity 86.87% - Also known as recall or True Positive Rate (TPR), sensitivity measures how often the model is correct when it  predicts employee attrition TPR = (TP/TP+FN) 
+
+* Specificity 65.71% - This is the opposite of sensitivity and it measures how often the model is correct when predicts employees retention. The closer this number is to 0, the better. TNR = (TN/TN+FP)
+
+* Precision 94.94% - Precision measures how well the model correctly predicts attrition. Precision = TP/TP+FP
+
+
+## 6. Feature Importance
+This section of focuses on ranking all the features in order of importance using the random forest algorithm in caret. A higher score means that the specific feature has a larger effect on the model in predicting the target label Attrition.
+
+Feature importance exercise is critical because it makes it easier to identify variables to be dropped in order to reduce complexity of the model. Also, it is a straightforward way of communicating your model performance  to other stakeholders.
+
+```{r warning=FALSE}
+set.seed(355)
+rf <- train(Attrition ~., data = TrainingSet, method = "rf")
+rf
+```
+
+```{r, fig.width = 8.5 }
+varimp_RF <- varImp(rf)
+plot(varimp_RF, main = "Employee Attrition (Random Forest)")
+```
+
+## 7. Conclusion
+To conclude, we have seen the entire process where we started with importing the dataset, getting to know the dataset at a high level, carrying out EDA (univariate & multivariate) and then moving on to data pre processing and then finally building models to predict the classification.
+
+Every model comes with parameters which can be used to tune the models to obtain higher accuracy and specific results. e.g. in some health cases where in we want to predict if a particular person is having cancer, we need to have a model which overall may have a less accuracy but it should have has very less false negatives i.e. a person may actually have cancer but our model predicts that he does not have it. In such cases it becomes hyper parameter tuning comes into picture and we can tweak the results using it. As, we had no such specific requirements and achieved the desired levels of accuracy and AUC values we have not used hyper parameter tuning here.
+
+Conclusion
+Sixteen percent of employees left the company.
+
+In the stacked bar charts, we saw employees who left were:
+
+In Sales
+Traveled frequently
+Worked over time
+Had low job satisfaction
+Had low environment satisfaction
+Had bad work life balance
+Chi-square results revealed gender, education, and performance rating did not have a significant role in employee attrition.
+
+From Chi-square tests and ANOVA, statistically significant variables that affected an employee’s decision to leave include:
+
+Monthly income
+Distance from home
+Business travel
+Environment satisfaction
+Job involvement
+Job role
+Job satisfaction
+Over time
+Stock option level
+Work life balance
+GBM with downsampling performed the best in minimizing false negatives, which will prevent us from overlooking employees that will actually leave. According to the variable importance plot, monthly income and over time are critical in attrition. Other important variables are related to work history, and distance from the office.
+
+To prevent attrition, the company could consider raising wages, foster a company culture that promotes work life balance, and allow remote work so employees don’t have long commutes. Remote work will also permit flexible schedules that will aid in work life balance issues.
